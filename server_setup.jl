@@ -12,7 +12,6 @@ using CSV
 using DataFrames
 
 @info "Loading custom libraries..."
-import MLAD3
 import AzureTools
 
 
@@ -25,9 +24,9 @@ Base.@kwdef struct HandlerResponse{R,F}
     res :: R
     fwd :: F
 end
-
 handler_response(r::Any) = HandlerResponse(res=(body=r,), fwd=nothing)
 handler_response(r::Any, fwd::Any) = HandlerResponse(res=(body=r,), fwd=fwd)
+
 
 Base.@kwdef struct FunctionAppResponse{O,R}
     Outputs :: O
@@ -37,8 +36,6 @@ end
 FunctionAppResponse(x::T, logs::Vector{String}) where T = FunctionAppResponse(T, Nothing)(x, logs, nothing)  
 
 
-const PYLOCK = ReentrantLock()
-
 """
 Method that locks python-related code to run on one thread, and disables GC during python calls
 This is done to prevent segfaults. Use the following pattern:
@@ -47,6 +44,7 @@ pylock() do
     <put your python-calling code here>
 end
 """
+const PYLOCK = ReentrantLock()
 pylock(f::Function) = Base.lock(PYLOCK) do
     prev_gc = GC.enable(false)
     try 
@@ -56,147 +54,42 @@ pylock(f::Function) = Base.lock(PYLOCK) do
     end
 end
 
-# ========================================================================================================
-# Model Training
-# ========================================================================================================
-
-
-post_train_model(req::HTTP.Request) = post_handler(call_train_model, req)
-
-function call_train_model(body::JSON3.Object)
-    modelname = body[:model_name]
-    dtformat  = DateFormat(get(body, :date_format, "yyyy-mm-ddTHH:MM:SS"))
-
-    @info "Reading data for $(modelname)"
-    settings = read_model_specs(modelname)
-    data     = read_training_data(modelname, dateformat=dtformat)
-    only_when_running!(data, settings)
-
-    @info "Training model: $(modelname)"
-    trained  = MLAD3.train_model(data, settings)
-
-    @info "Writing model and metadata for $(modelname)"
-    write_model_object(modelname, trained.model)
-    write_model_state(modelname, trained.state)
-    write_model_specs(modelname, trained.specs)
-
-    return handler_response("successfully trained model: $(modelname)")
-end
-
 
 
 # ========================================================================================================
-# Data handling tools
+# Blob handling tools from custom package AzureTools.jl
 # ========================================================================================================
-const MODEL_STORAGE = get(ENV, "ModelStorage", "")
+const MODEL_STORAGE = get(ENV, "AzureWebJobsStorage", "")
 
-"Use the 'off_conditions' field in the settings object to filter out data where asset is not running"
-function only_when_running!(df::DataFrame, settings::JSON3.Object)
-    offcond = settings[:off_conditions]
-    tag = offcond[:tag]
-    cutoff = offcond[:value]
-
-    if lowercase(offcond[:relationship]) == "less than"
-        return filter!(row-> cutoff < row[tag], df)
-    elseif lowercase(offcond[:relationship]) == "greater than"
-        return filter!(row-> cutoff > row[tag], df)
-    else
-        error("'on_conditions' field 'relationship' must be either 'greater than' or 'less than'")
-    end
-end
-
-blobdef_model_object(modelname::String) = AzureTools.BlobDefinition(
-    connectstr=MODEL_STORAGE, container="mlad-models", blob=modelname*".jls"
-)
-blobdef_model_state(modelname::String) = AzureTools.BlobDefinition(
-    connectstr=MODEL_STORAGE, container="mlad-states", blob=modelname*".json"
-)
-blobdef_model_specs(modelname::String) = AzureTools.BlobDefinition(
-    connectstr=MODEL_STORAGE, container="mlad-settings", blob=modelname*".json"
-)
-blobdef_training_data(modelname::String) = AzureTools.BlobDefinition(
-    connectstr = MODEL_STORAGE, container="mlad-training", blob=modelname*".csv"
+blob_definition(container::String, filename::String) = AzureTools.BlobDefinition(
+    connectstr=MODEL_STORAGE, 
+    container=container, 
+    blob=filename
 )
 
-function read_model_object(modelname::String)
-    modelDef = blobdef_model_object(modelname)
-    return pylock() do
-        deserialize(IOBuffer(AzureTools.read_blob(modelDef)))
-    end
-end
-
-function write_model_object(modelname::String, obj)
-    modelDef = blobdef_model_object(modelname)
-    io = IOBuffer()
-    serialize(io, obj)
-    return pylock() do
-        AzureTools.write_blob(modelDef, take!(io))
-    end
-end
-    
-
-function read_model_state(modelname::String)
-    stateDef = blobdef_model_state(modelname)
-    pylock() do
-        return JSON3.read(AzureTools.read_blob(stateDef), allow_inf=true )
-    end
-end
-
-function write_model_state(modelname::String, obj)
-    stateDef = blobdef_model_state(modelname)
-    io = IOBuffer()
-    JSON3.pretty(io, obj, allow_inf=true)
-    pylock() do
-        return AzureTools.write_blob(stateDef, take!(io))
-    end
-end
-
-function read_model_specs(modelname::String)
-    specsDef = blobdef_model_specs(modelname)
-    pylock() do
-        return JSON3.read(AzureTools.read_blob(specsDef), allow_inf=true )
-    end
-end
-
-function write_model_specs(modelname::String, obj)
-    specDef = blobdef_model_specs(modelname)
-    io = IOBuffer()
-    JSON3.pretty(io, obj, allow_inf=true)
-    pylock() do
-        return AzureTools.write_blob(specDef, take!(io))
-    end
-end
-
-
-function read_training_data(modelname::String; dateformat=dateformat"yyyy-mm-ddTHH:MM:SS")
-    dataDef = blobdef_training_data(modelname)
+function read_csv_blob(container::String, filename::String)
+    blobDef = blob_definition(container, filename)
     csvBin  = pylock() do
-        AzureTools.read_blob(dataDef)
+        AzureTools.read_blob(blobDef)
     end
-    csvData = DataFrame(CSV.File(IOBuffer(csvBin), dateformat=dateformat))
-
-    return handle_missing_values!(csvData)
+    return DataFrame(CSV.File(IOBuffer(csvBin), dateformat=dateformat))
 end
 
-function handle_missing_values!(df::DataFrame)
-    dropmissing!(df, 1) #Remove rows where timestamp column is empty
-    df .= coalesce.(df, NaN) #Set missing values to NaN
-    disallowmissing!(df) #Remove typeunions from array types
-    return df
+function write_csv_blob(container::String, modelname::String, data::DataFrame)
+    blobDef = blob_definition(container, modelname)
+    io = IOBuffer()
+    CSV.write(io, data)
+    return pylock() do
+        AzureTools.write_blob(blobDef, take!(io))
+    end
 end
-
-function logvector(logStr::String)
-    logStr = replace(logStr, "\n│"=>"")
-    logStr = replace(logStr, "\n└"=>"")
-    return String.(split(logStr, "┌", keepempty=false))
-end
-
 
 
 # ========================================================================================================
 # Generic request handling tools 
 # ========================================================================================================
 
+"boiler plate for handling a post request (applicable to both HTTP and Queue triggers, extend 'get_inner_body' for more triggers)"
 function post_handler(instructions::Function, request::HTTP.Request)
     logger = SimpleLogger(IOBuffer()) #Logger to catch any messages in memory
     @info "Recieved request"
@@ -236,7 +129,7 @@ function parse_data_body(data::JSON3.Object)
     end
 end
 
-
+"Forwards a post request to the output (useful for writting an HTTP message body as a Queue message)"
 function post_forward(request::HTTP.Request)
     logger = SimpleLogger(IOBuffer()) #Logger to catch any messages in memory
     @info "Forwarding request"
@@ -257,12 +150,13 @@ function post_forward(request::HTTP.Request)
     end
 end
 
-
+"Creates a JSON Function App response from outputs and a logger"
 function json_responder(output::HandlerResponse, logger::SimpleLogger)
     message = output_message(output, logger)
     return HTTP.Response(200, ["Content-Type"=> "application/json"], JSON3.write(message, allow_inf=true))
 end
 
+"Creates an error response for a Function app"
 function error_responder(err::Exception, logger::SimpleLogger, backtr)
 	io = Base.IOBuffer()
 
@@ -277,12 +171,12 @@ function error_responder(err::Exception, logger::SimpleLogger, backtr)
     close(io)
 
     message = output_message(handler_response(shortmessage), logger)
-    #error(fullmessage)
 
-	return HTTP.Response(200, ["Content-Type"=> "application/json"], JSON3.write(message))
+	return HTTP.Response(400, ["Content-Type"=> "application/json"], JSON3.write(message))
 
 end
 
+"Formats output and logger in the manner desired by Azure functions"
 function output_message(output, logger::SimpleLogger)
     message = FunctionAppResponse(
         Outputs = output,
@@ -294,36 +188,13 @@ function output_message(output, logger::SimpleLogger)
     return message
 end
 
-
-
-
-
-#=
-function post_asset_survival_results(req::HTTP.Request)
-	return post_handler(req, BRIE.asset_survival_results)
+"Translates Julia logs into a vector of logs in the desired Azure Functions format"
+function logvector(logStr::String)
+    logStr = replace(logStr, "\n│"=>"")
+    logStr = replace(logStr, "\n└"=>"")
+    return String.(split(logStr, "┌", keepempty=false))
 end
 
-function post_asset_backfill_results(req::HTTP.Request)
-	return post_handler(req, BRIE.asset_backfill_results)
-end
-=#
-
-#=
-#Test logger example
-function log_test_function(x)
-    for ii in 1:10
-        xi = x*ii
-        @info "the value is $(xi)"
-    end
-end
-
-logger = Logging.SimpleLogger(IOBuffer())
-with_logger(logger) do 
-    log_test_function(2.6)
-end
-resp = String(take!(logger.stream))
-close(logger.stream)
-=#
 
 # ==============================================================================
 # Create and run the server
@@ -332,15 +203,9 @@ close(logger.stream)
 # Make a router and add routes for our endpoints.
 r = HTTP.Router()
 
-#HTTP.register!(r, "GET", "/version", version)
-
-HTTP.register!(r, "POST", "/Http_TrainDirect", post_train_model)
-#HTTP.register!(r, "POST", "/Http_TrainDirect", post_forward)
-
+HTTP.register!(r, "POST", "/Http_TrainDirect", post_forward)
 HTTP.register!(r, "POST", "/Http_TrainQueue",  post_forward)
-
-HTTP.register!(r, "POST", "/Queue_Train",      post_train_model)
-#HTTP.register!(r, "POST", "/Queue_Train",      post_forward)
+HTTP.register!(r, "POST", "/Queue_Train",      post_forward)
 
 #When using Docker, this should be done via command line
 @info "Server starting up, elapsed time = $(round(datetime2unix(now())-T0, digits=1)) seconds..."
