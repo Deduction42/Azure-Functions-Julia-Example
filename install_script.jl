@@ -13,8 +13,6 @@ Pkg.add("CSV")
 Pkg.add("DataFrames")
 Pkg.add("PackageCompiler")
 
-pkgList = [:JSON3, :CSV, :DataFrames]
-
 #Install custom packages
 @info "Adding custom packages"
 Pkg.develop(path=joinpath(@__DIR__, "AzureTools"))
@@ -27,7 +25,9 @@ using AzureTools
 @info "Compiling packages"
 using PackageCompiler
 
+#I wasn't able to get AzureTools.jl to properly precompile
+pkgList = [:JSON3, :CSV, :DataFrames]
 compilerFile = joinpath(@__DIR__, "server_setup.jl")
 imagePath = joinpath(@__DIR__, "sys_server.so")
-@time create_sysimage(pkgList, sysimage_path=imagePath, precompile_execution_file=compilerFile, cpu_target = "generic")
+@time create_sysimage(pkgList, sysimage_path=imagePath, precompile_execution_file=compilerFile, cpu_target="generic")
 
