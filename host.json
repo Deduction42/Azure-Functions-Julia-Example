@@ -1,0 +1,28 @@
+{
+  "version": "2.0",
+  "logging": {
+    "applicationInsights": {
+      "samplingSettings": {
+        "isEnabled": true,
+        "excludedTypes": "Request;Exception"
+      }
+    },
+    "logLevel": {"default": "Trace"}
+  },
+  "extensionBundle": {
+    "id": "Microsoft.Azure.Functions.ExtensionBundle",
+    "version": "[3.*, 4.0.0)"
+  },
+  "customHandler": {
+    "description": {
+      "defaultExecutablePath": "julia",
+      "workingDirectory": "",
+      "arguments": ["--sysimage /home/site/wwwroot/sys_server.so  -t auto -- /home/site/wwwroot/server_start.jl"]
+    }
+  },
+  "concurrency": {
+    "dynamicConcurrencyEnabled": true,
+    "snapshotPersistenceEnabled": true
+  },
+  "functionTimeout": "02:00:00"
+}
