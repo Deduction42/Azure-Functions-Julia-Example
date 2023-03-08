@@ -17,15 +17,13 @@ pkgList = [:JSON3, :CSV, :DataFrames]
 
 #Install custom packages
 @info "Adding custom packages"
-Pkg.develop(path=joinpath(@__DIR__, "MLAD3"))
 Pkg.develop(path=joinpath(@__DIR__, "AzureTools"))
 
 @info "Initializing custom packages"
-using MLAD3
 using AzureTools
 
-push!(pkgList, :MLAD3)
 
+#Precompile packages if startup time becomes too long; this is generally required for anything beyond really simple packages, even CSV.jl starts pushing these limits
 @info "Compiling packages"
 using PackageCompiler
 
@@ -33,26 +31,3 @@ compilerFile = joinpath(@__DIR__, "server_setup.jl")
 imagePath = joinpath(@__DIR__, "sys_server.so")
 @time create_sysimage(pkgList, sysimage_path=imagePath, precompile_execution_file=compilerFile, cpu_target = "generic")
 
-
-#=
-Packages to add for MLAD3
-add LinearAlgebra
-add Statistics
-add Dates
-add DataFrames
-add CSV
-add SparseArrays
-add OffsetArrays
-add Interpolations
-add NaNStatistics
-add StaticArrays
-add Distributions
-add LogExpFunctions
-add JSON3
-add NaNMath
-=#
-
-#=
-Packages to add for AzureTools
-add PyCall
-=#
