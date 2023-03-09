@@ -203,9 +203,9 @@ end
 # Make a router and add routes for our endpoints.
 r = HTTP.Router()
 
-HTTP.register!(r, "POST", "/Http_TrainDirect", post_forward)
-HTTP.register!(r, "POST", "/Http_TrainQueue",  post_forward)
-HTTP.register!(r, "POST", "/Queue_Train",      post_forward)
+HTTP.register!(r, "POST", "/Http_WithReturn", post_forward)
+HTTP.register!(r, "POST", "/Http_ToQueue",    post_forward)
+HTTP.register!(r, "POST", "/Queue_Ingest",    post_forward)
 
 #When using Docker, this should be done via command line
 @info "Server starting up, elapsed time = $(round(datetime2unix(now())-T0, digits=1)) seconds..."
