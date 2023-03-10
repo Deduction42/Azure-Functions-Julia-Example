@@ -18,8 +18,8 @@
       "type": "queue",
       "direction": "out",
       "name": "fwd",
-      "queueName": "training",
-      "connection": "ModelStorage"
+      "queueName": "orders",
+      "connection": "AzureWebJobsStorage"
     }
   ]
 }
