@@ -4,8 +4,8 @@
       "name": "msg",
       "type": "queueTrigger",
       "direction": "in",
-      "queueName": "training",
-      "connection": "ModelStorage"
+      "queueName": "orders",
+      "connection": "AzureWebJobsStorage"
     }
   ]
 }
