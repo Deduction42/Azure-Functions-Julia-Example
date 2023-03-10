@@ -1,5 +1,5 @@
 # Azure-Functions-Julia-Example
-Implements an example of a custom Azure Functions handler in Julia (similar to the Go example provided by Microsoft). This example constists of three major endpoints:
+Implements an example of a custom Azure Functions handler in Julia (similar to the R example provided by Microsoft https://github.com/revodavid/R-custom-handler but with more functionality). This example constists of three major endpoints:
 
 1. Http_WithReturn: A regular HTTP endpoint that returns a value
 2. Http_ToQueue: Sends the body message to the queue ("orders") in the associated storage account
@@ -14,6 +14,6 @@ This project makes use of the Python base image from Azure and installs PyCall, 
 Bodies from Http triggers and Queue triggers have different formats, but both messages live under Data. This server assumes (through `get_inner_body` and `parse_data_body`) that if `reqBody["Data"]` comes from an HTTP trigger, the corresponding field in "Data" will be "req" and if it comes from a Queue trigger, the corresponding field will by "msg". You may eventually want to use some other method to discriminate.
 
 ## Precompilation
-I have found that for most non-trivial Julia function apps, startup time becomes a serious issue; apps tend to fail if they don't start up within one minute. To alleviate this, you may need to put your server code into "package format" as seen in AzureTools.jl and install the package using Pkg.develop (as seen in install_script.jl). Precompilation requires the Clang compiler (installed in the early portion of the docker file). Unfortunately, I was not able to successfully precompile AzureTools.jl, likely failing due to Python dependencies (potentially someone can contribute a fix) but since AzureTools.jl only contains a single PyCall dependency, it does not strongly affect startup times.
+I have found that for most non-trivial Julia function apps, startup time becomes a serious issue; apps tend to fail if they don't start up within one minute. To alleviate this, you may need to assemble your main code into "package format" as seen in AzureTools.jl and install the package using Pkg.develop (as seen in install_script.jl). Precompilation requires the Clang compiler (installed in the early portion of the docker file). Unfortunately, I was not able to successfully precompile AzureTools.jl, likely failing due to Python dependencies (potentially someone can contribute a fix) but since AzureTools.jl only contains a single PyCall dependency, it does not strongly affect startup times. I was, however, able to precomile my own custom code for many different function apps with a myriad of standard package dependencies using this pattern.
 
 
